@@ -1,7 +1,4 @@
-import json
 import os
-import sqlite3
-from datetime import datetime, timezone
 
 import streamlit as st
 from chromadb.errors import ChromaError
@@ -9,6 +6,7 @@ from openai import APIConnectionError, APIError, AuthenticationError, RateLimitE
 from pypdf.errors import PdfReadError
 
 from rag import analyze_resume, extract_pdf_text
+from history import get_recent_history, init_history_db, record_analysis
 
 
 MAX_PDF_BYTES = 10 * 1024 * 1024
@@ -17,72 +15,7 @@ MAX_RESUME_TEXT_LENGTH = 100_000
 HISTORY_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "analysis_history.db")
 
 
-def init_history_db() -> None:
-    with sqlite3.connect(HISTORY_DB_PATH) as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS analysis_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                created_at TEXT NOT NULL,
-                filename TEXT NOT NULL,
-                overall_summary TEXT NOT NULL,
-                matching_skills TEXT NOT NULL,
-                missing_skills TEXT NOT NULL,
-                experience_gaps TEXT NOT NULL,
-                recommendations TEXT NOT NULL
-            )
-            """
-        )
-
-
-def save_analysis_history(filename: str, result: dict) -> None:
-    with sqlite3.connect(HISTORY_DB_PATH) as conn:
-        conn.execute(
-            """
-            INSERT INTO analysis_history (
-                created_at, filename, overall_summary,
-                matching_skills, missing_skills, experience_gaps, recommendations
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                datetime.now(timezone.utc).isoformat(),
-                filename,
-                result["overall_summary"],
-                json.dumps(result["matching_skills"]),
-                json.dumps(result["missing_skills"]),
-                json.dumps(result["experience_gaps"]),
-                json.dumps(result["recommendations"]),
-            ),
-        )
-
-
-def get_recent_history(limit: int = 5) -> list[dict]:
-    with sqlite3.connect(HISTORY_DB_PATH) as conn:
-        rows = conn.execute(
-            """
-            SELECT created_at, filename, overall_summary, matching_skills, missing_skills,
-                   experience_gaps, recommendations
-            FROM analysis_history
-            ORDER BY created_at DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
-    return [
-        {
-            "created_at": row[0],
-            "filename": row[1],
-            "overall_summary": row[2],
-            "matching_skills": json.loads(row[3]),
-            "missing_skills": json.loads(row[4]),
-            "experience_gaps": json.loads(row[5]),
-            "recommendations": json.loads(row[6]),
-        }
-        for row in rows
-    ]
-
-
-init_history_db()
+init_history_db(HISTORY_DB_PATH)
 
 st.set_page_config(page_title="Resume Gap Analyzer", page_icon="🎯", layout="wide")
 
@@ -105,7 +38,8 @@ st.markdown(
 )
 st.caption(
     "Your resume is processed for this analysis only. Its text is not saved by this app; "
-    "the extracted text is sent to OpenAI for embeddings and analysis."
+    "the extracted text is sent to OpenAI for embeddings and analysis. Analysis history "
+    "stores timestamps only, not filenames, resume text, or analysis results."
 )
 
 with st.sidebar:
@@ -119,14 +53,12 @@ with st.sidebar:
     st.caption("Embedding: text-embedding-3-small · Analysis: gpt-4o-mini")
 
     st.subheader("Recent analyses")
-    history = get_recent_history()
+    history = get_recent_history(HISTORY_DB_PATH)
     if not history:
         st.info("No saved analyses yet.")
     else:
-        for item in history:
-            st.markdown(f"**{item['filename']}**")
-            st.caption(item["created_at"][:19].replace("T", " "))
-            st.caption(item["overall_summary"])
+        for created_at in history:
+            st.caption(f"Analysis completed: {created_at[:19].replace('T', ' ')}")
             st.divider()
 
 left, right = st.columns(2)
@@ -163,7 +95,7 @@ if analyze_button:
                 result = analyze_resume(resume_text, job_description.strip(), api_key.strip())
             st.session_state["analysis_result"] = result
             st.session_state["analysis_filename"] = uploaded_file.name
-            save_analysis_history(uploaded_file.name, result)
+            record_analysis(HISTORY_DB_PATH)
         except AuthenticationError:
             st.error("OpenAI rejected the API key. Check the key and try again.")
         except RateLimitError:

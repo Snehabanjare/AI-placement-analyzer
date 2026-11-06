@@ -9,7 +9,7 @@ A Streamlit MVP that extracts text from a resume PDF, embeds resume and job-desc
 - Stores embeddings in a temporary, in-memory Chroma collection and retrieves relevant passages.
 - Uses `gpt-4o-mini` to report matching skills, missing or unconfirmed skills, experience gaps, and prioritized recommendations.
 - Requires resume evidence for matches and distinguishes an unmentioned skill from a confirmed lack of skill.
-- Saves analysis results locally in SQLite for quick review; the history includes the uploaded filename and generated evidence, but not the original PDF or raw job description.
+- Saves recent analysis timestamps locally in SQLite; filenames, resume text, job descriptions, and analysis results are not stored in history.
 - Deletes the vector collection after each analysis; the app does not persist uploaded files or extracted text.
 
 ## Run locally
@@ -35,6 +35,6 @@ python -m unittest discover -s tests
 
 ## Data and privacy
 
-Resume text is sent to OpenAI for embedding and analysis. Review the provider's data policies before uploading sensitive personal information. The vector database is in-memory and its collection is deleted when processing finishes; no resume content is saved by this application.
+Resume text is sent to OpenAI for embedding and analysis. Review the provider's data policies before uploading sensitive personal information. The vector database is in-memory and its collection is deleted when processing finishes; the application does not persist resume text or analysis results. The local SQLite history stores analysis timestamps only. On first startup after upgrading from an earlier version, the app removes the legacy history table that stored filenames and analysis results.
 
-The app supports PDFs up to 10 MB (with extracted text limited to 100,000 characters) and job descriptions up to 30,000 characters. OCR for scanned PDFs requires Tesseract and Poppler to be installed separately. Analysis history is stored in `analysis_history.db` in the project directory and is excluded from Git; delete that database file to remove saved history. The app does not include authentication, so keep it on a trusted local machine unless you add appropriate deployment controls.
+The app supports PDFs up to 10 MB (with extracted text limited to 100,000 characters) and job descriptions up to 30,000 characters. OCR for scanned PDFs requires Tesseract and Poppler to be installed separately. Timestamp history is stored in `analysis_history.db` in the project directory and is excluded from Git; delete that database file to remove it. The app does not include authentication, so keep it on a trusted local machine unless you add appropriate deployment controls.
